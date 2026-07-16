@@ -6145,3 +6145,31 @@ async def test_enrich_teams_with_area_paths() -> None:
     # Successful team gets its field values; a failing team does not break the batch
     assert enriched_teams[0]["__areaPaths"] == MOCK_TEAM_FIELD_VALUES
     assert enriched_teams[1]["__areaPaths"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_wraps_variables_and_sets_branch() -> None:
+    from azure_devops.client.azure_devops_client import RunPipelineOptions
+
+    client = AzureDevopsClient(MOCK_ORG_URL, MOCK_AUTH_PROVIDER, MOCK_AUTH_USERNAME)
+    options = RunPipelineOptions(
+        branch="main",
+        template_parameters={"env": "prod"},
+        variables={"ENV": "prod", "ADVANCED": {"value": "x", "isSecret": True}},
+    )
+
+    with patch.object(client, "send_request") as mock_send_request:
+        mock_send_request.return_value = Response(status_code=200, json={"id": 7})
+
+        result = await client.run_pipeline("proj-guid", "12", options)
+
+    assert result == {"id": 7}
+    sent_body = json.loads(mock_send_request.call_args.kwargs["data"])
+    assert sent_body["variables"] == {
+        "ENV": {"value": "prod"},
+        "ADVANCED": {"value": "x", "isSecret": True},
+    }
+    assert sent_body["templateParameters"] == {"env": "prod"}
+    assert sent_body["resources"] == {
+        "repositories": {"self": {"refName": "refs/heads/main"}}
+    }
